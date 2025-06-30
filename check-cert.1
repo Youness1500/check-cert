@@ -1,0 +1,40 @@
+.TH CHECK-CERT 1 "April 2025" "1.0" "Certificate Checker Utility"
+.SH NAME
+check-cert \- Validate that SSL certificates match private keys and intermediates.
+.SH SYNOPSIS
+.B check-cert
+[\fB\-c\fR cert_file] [\fB\-k\fR key_file] [\fB\-i\fR intermediate_file] [\fB\-v\fR] [\fB\-h\fR]
+.SH DESCRIPTION
+\fBcheck-cert\fR is a command-line tool to verify that an SSL certificate matches its private key
+and optionally check that the certificate is issued by a provided intermediate CA.
+
+The script compares the public keys extracted from the certificate and the private key,
+and validates issuer-subject matching between the certificate and the intermediate.
+
+.SH OPTIONS
+.TP
+.B \-c, --cert
+Path to the certificate file to validate (required).
+.TP
+.B \-k, --key
+Path to the private key file to validate (required).
+.TP
+.B \-i, --intermediate
+Path to the intermediate certificate file (optional).
+.TP
+.B \-v, --verbose
+Enable verbose mode to display detailed OpenSSL outputs.
+.TP
+.B \-h, --help
+Show help and usage information.
+
+.SH EXAMPLES
+check-cert -c cert.pem -k key.pem
+
+check-cert -c cert.pem -k key.pem -i intermediate.pem -v
+
+.SH AUTHOR
+Written by Youness OUJDID Senior System Engineer.
+
+.SH VERSION
+1.0

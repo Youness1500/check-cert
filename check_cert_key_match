@@ -1,0 +1,182 @@
+#!/bin/bash
+# Color codes
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+NC='\033[0m' # No Color
+
+# Variables
+VERBOSE=0
+ERROR_FOUND=0
+
+# Check if OpenSSL is installed
+if ! command -v openssl &> /dev/null; then
+    echo -e "${RED}Error: OpenSSL is not installed.${NC}"
+    exit 1
+fi
+
+# Display banner
+echo -e "${GREEN}"
+echo "==============================================="
+echo "        🔐 Certificate Checker Utility"
+echo "==============================================="
+echo -e "${NC}"
+
+# Function to display help
+show_help() {
+    echo "Usage: $0 [OPTIONS] -c <cert_file> -k <key_file> [-i <intermediate_cert_file>]"
+    echo ""
+    echo "Options:"
+    echo "  -c, --cert         Path to the certificate file"
+    echo "  -k, --key          Path to the private key file"
+    echo "  -i, --intermediate Path to the intermediate certificate file (optional)"
+    echo "  -v, --verbos       Dispolay openssl verbos"
+    echo "  -h, --help         Show this help message and exit"
+    echo ""
+    echo "Examples:"
+    echo "  $0 -c cert.pem -k key.pem"
+    echo "  $0 -c cert.pem -k key.pem -i intermediate.pem"
+}
+
+# Parse arguments
+CERT_FILE=""
+KEY_FILE=""
+INTERMEDIATE_FILE=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -c|--cert)
+            CERT_FILE="$2"
+            shift 2
+            ;;
+        -k|--key)
+            KEY_FILE="$2"
+            shift 2
+            ;;
+        -i|--intermediate)
+            INTERMEDIATE_FILE="$2"
+            shift 2
+            ;;
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        -v|--verbose)
+            VERBOSE=1
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            show_help
+            exit 1
+            ;;
+    esac
+done
+
+# Check mandatory parameters
+if [[ -z "$CERT_FILE" || -z "$KEY_FILE" ]]; then
+    echo -e "${RED}Error: Certificate and private key files must be provided.${NC}"
+    show_help
+    exit 1
+fi
+
+# Check if files exist
+if [ ! -f "$CERT_FILE" ]; then
+    echo -e "${RED}Error: Certificate file '$CERT_FILE' not found.${NC}"
+    exit 1
+fi
+
+if [ ! -f "$KEY_FILE" ]; then
+    echo -e "${RED}Error: Private key file '$KEY_FILE' not found.${NC}"
+    exit 1
+fi
+
+# Extract and hash public key from certificate
+CERT_HASH=$(openssl x509 -in "$CERT_FILE" -noout -pubkey | openssl pkey -pubin -outform der | openssl md5)
+
+# Extract and hash public key from private key
+KEY_HASH=$(openssl pkey -in "$KEY_FILE" -pubout -outform der | openssl md5)
+
+# Only show extra info if verbose mode is enabled
+if [ "$VERBOSE" -eq 1 ]; then
+    # Display the hashes
+    echo "🔎 Certificate public key hash: $CERT_HASH"
+    echo "🔎 Private key public key hash: $KEY_HASH"
+fi
+
+# Check if the certificate is valid 
+if openssl x509 -in "$CERT_FILE" -noout -checkend 0; then
+    EXPIRATION_DATE=$(openssl x509 -in "$CERT_FILE" -noout -enddate | cut -d= -f2)
+    echo -e "${GREEN}✅ Certificate is valid. Certificate will not expire after $EXPIRATION_DATE.${NC}"
+else
+    echo -e "${RED}❌ Error: Certificate is expired or not yet valid.${NC}"
+    ERROR_FOUND=1
+fi       
+# Check if the private key is valid
+if openssl pkey -in "$KEY_FILE" -noout; then
+    echo -e "${GREEN}✅ Private key is valid.${NC}"
+else
+    echo -e "${RED}❌ Error: Private key is invalid.${NC}"
+    ERROR_FOUND=1
+fi
+# Check if the certificate is self-signed
+if openssl x509 -in "$CERT_FILE" -noout -issuer -subject | grep -q "CN="; then
+    echo -e "${GREEN}✅ Certificate is self-signed.${NC}"
+else
+    echo -e "${RED}❌ Certificate is NOT self-signed.${NC}"
+    ERROR_FOUND=1
+fi
+
+# Compare certificate and private key
+if [ "$CERT_HASH" == "$KEY_HASH" ]; then
+    echo -e "${GREEN}✅ Match: Certificate and private key match.${NC}"
+else
+    echo -e "${RED}❌ Mismatch: Certificate and private key do NOT match.${NC}"
+    ERROR_FOUND=1
+fi
+
+# If intermediate file is provided, compare
+if [[ -n "$INTERMEDIATE_FILE" ]]; then
+    # verbose output for intermediate cert 
+    if [ "$VERBOSE" -eq 1 ]; then
+        echo "🔎 Certificate Issuer:"
+        openssl x509 -in "$CERT_FILE" -noout -issuer -nameopt multiline
+        echo "🔎 Intermediate Subject:"
+        openssl x509 -in "$INTERMEDIATE_FILE" -noout -subject -nameopt multiline
+    fi
+    if [ ! -f "$INTERMEDIATE_FILE" ]; then
+        echo -e "${RED}Error: Intermediate certificate file '$INTERMEDIATE_FILE' not found.${NC}"
+        exit 1
+    fi
+
+    # Compare issuer of cert with subject of intermediate
+    CERT_ISSUER=$(openssl x509 -in "$CERT_FILE" -noout -issuer)
+    INTERMEDIATE_SUBJECT=$(openssl x509 -in "$INTERMEDIATE_FILE" -noout -subject)
+
+    echo ""
+    echo "Checking certificate against intermediate CA..."
+    if [[ "$CERT_ISSUER" == "$INTERMEDIATE_SUBJECT" ]]; then
+        echo -e "${GREEN}✅ Match: Certificate is issued by the provided intermediate CA.${NC}"
+    else
+        echo -e "${RED}❌ Mismatch: Certificate issuer does NOT match intermediate CA subject.${NC}"
+        ERROR_FOUND=1
+    fi
+fi
+# Clean up
+rm -f "$CERT_HASH" "$KEY_HASH"
+# End of script
+echo ""
+echo "==============================================="
+
+if [ "$ERROR_FOUND" -eq 0 ]; then
+    echo -e "${GREEN}✅ All checks passed successfully!${NC}"
+    exit 0
+else
+    echo -e "${RED}❌ Some checks failed. Please review the errors above.${NC}"
+    exit 2
+fi
+
+echo "====================================================================="
+echo -e "${GREEN}Thank you for using the Certificate Checker Utility!${NC}"
+echo "====================================================================="
+
+
